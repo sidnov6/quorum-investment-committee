@@ -199,12 +199,38 @@ function DebateInner() {
                       <span className="text-[10px] text-ink-faint">conf {t.payload.confidence}</span>}
                   </div>
                   <p className="leading-relaxed text-ink">{t.content}</p>
+                  {/* News brief: show the exact headlines with date, source, sentiment */}
+                  {t.kind === "news" && t.payload?.items?.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {t.payload.items.slice(0, 6).map((n: any, j: number) => {
+                        const s = n.sentiment;
+                        const tone = s > 0.1 ? "text-bull" : s < -0.1 ? "text-bear" : "text-ink-faint";
+                        const dot = s > 0.1 ? "bg-bull" : s < -0.1 ? "bg-bear" : "bg-ink-faint";
+                        return (
+                          <div key={j} className="flex items-start gap-2 text-xs">
+                            <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                            <div>
+                              <span className="text-ink">{n.title}</span>
+                              <span className="ml-1.5 text-ink-faint">
+                                · {n.date} · {n.source}
+                                <span className={`ml-1 font-mono ${tone}`}>
+                                  {s > 0 ? "+" : ""}{s}
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   {t.payload?.evidence?.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {t.payload.evidence.map((c: any, j: number) => (
                         <span key={j} className="chip bg-white text-ink-faint border border-surface-line"
                           title={`${c.source} · ${c.as_of}`}>
-                          {c.field}={typeof c.value === "number" ? c.value : c.value} ✓
+                          {c.field === "headline"
+                            ? `📰 ${String(c.value).slice(0, 50)}${String(c.value).length > 50 ? "…" : ""}`
+                            : `${c.field}=${c.value}`} ✓
                         </span>
                       ))}
                     </div>

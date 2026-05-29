@@ -1,0 +1,26 @@
+name: Daily Committee Run
+
+# Free daily scheduler. Convenes the committee, restructures the paper portfolio,
+# scans for news-driven drops, and emails subscribers their report.
+on:
+  schedule:
+    # 21:30 UTC on weekdays ≈ after US market close. GitHub cron is UTC.
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:        # allow manual "Run workflow" from the Actions tab
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily run on the API
+        run: |
+          echo "Calling QUORUM daily endpoint…"
+          code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST \
+            "${API_BASE}/api/daily/run?token=${DAILY_RUN_TOKEN}" \
+            -H "Content-Type: application/json")
+          echo "HTTP $code"
+          cat /tmp/resp.json
+          if [ "$code" != "200" ]; then echo "::error::Daily run failed ($code)"; exit 1; fi
+        env:
+          API_BASE: ${{ secrets.API_BASE }}
+          DAILY_RUN_TOKEN: ${{ secrets.DAILY_RUN_TOKEN }}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getJSON, postJSON, fmtUSD, fmtPct } from "@/lib/api";
 import { PageHeader, StatCard, Badge, Spinner } from "@/components/ui";
 import EquityChart from "@/components/EquityChart";
+import Subscribe from "@/components/Subscribe";
 
 export default function Portfolio() {
   const [snap, setSnap] = useState<any>(null);
@@ -92,9 +93,14 @@ export default function Portfolio() {
         </>
       )}
 
+      <div className="mt-8">
+        <Subscribe />
+      </div>
+
       <p className="mt-4 text-xs text-ink-faint">
-        Tip: a scheduler/cron can call <span className="font-mono">POST /api/portfolio/run-today</span> each
-        trading day to grow this track record automatically.
+        The committee runs automatically every weekday (GitHub Actions cron →
+        <span className="font-mono"> POST /api/daily/run</span>), restructures within risk limits,
+        scans held names for sudden drops or negative news, and emails subscribers their report.
       </p>
     </div>
   );

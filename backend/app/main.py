@@ -34,6 +34,9 @@ from quorum.store import db
 from quorum.universe import UNIVERSE, by_sector, info, tickers
 from quorum import paper
 from quorum import assistant
+from quorum import daily as daily_job
+from quorum import email_report
+import os
 
 app = FastAPI(title="QUORUM API", version="1.0")
 app.add_middleware(
@@ -85,7 +88,48 @@ def _mandate(req: CommitteeRequest) -> Mandate:
 def health():
     from quorum.models.router import available_providers
     return {"ok": True, "llm": available_providers() or ["deterministic"],
-            "universe_size": len(UNIVERSE)}
+            "universe_size": len(UNIVERSE), "db": "postgres" if db.IS_PG else "sqlite",
+            "email": email_report.email_enabled()}
+
+
+# ---------------- daily job + email ----------------
+class SubscribeRequest(BaseModel):
+    email: str
+
+
+@app.post("/api/subscribe")
+def subscribe(req: SubscribeRequest):
+    e = req.email.strip().lower()
+    if "@" not in e or "." not in e:
+        return {"ok": False, "error": "invalid email"}
+    db.add_subscriber(e)
+    return {"ok": True, "email": e, "subscribers": len(db.list_subscribers())}
+
+
+@app.post("/api/unsubscribe")
+def unsubscribe(req: SubscribeRequest):
+    db.remove_subscriber(req.email)
+    return {"ok": True}
+
+
+@app.post("/api/daily/run")
+def daily_run(as_of_date: str | None = None, token: str = "", send_email: bool = True):
+    """Run the daily committee + email job. Protected by DAILY_RUN_TOKEN if set."""
+    expected = os.getenv("DAILY_RUN_TOKEN", "")
+    if expected and token != expected:
+        return {"ok": False, "error": "unauthorized"}
+    return daily_job.run_daily(as_of_date, send_email=send_email)
+
+
+@app.get("/api/daily/preview")
+def daily_preview(as_of_date: str | None = None):
+    """Render today's report HTML WITHOUT sending — for previewing in the browser."""
+    snap = paper.snapshot()
+    alerts = daily_job.scan_alerts(as_of_date or __import__("datetime").date.today().isoformat(),
+                                   snap.get("holdings", []))
+    subject, html = email_report.render_report(snap, None, alerts)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(html)
 
 
 @app.get("/api/universe")

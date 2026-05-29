@@ -15,6 +15,19 @@ def _cite(factors: dict, field: str) -> list[Citation]:
     return [Citation(**c) for c in factors["citations"] if c["field"] == field]
 
 
+def _news_cite(factors: dict, positive: bool) -> tuple[str, list[Citation]]:
+    """Find the strongest positive/negative real headline and cite it (with date+source)."""
+    items = factors.get("news_items", [])
+    pool = [n for n in items if (n.get("sentiment", 0) > 0.1) == positive and
+            (n.get("sentiment", 0) > 0.1 or n.get("sentiment", 0) < -0.1)]
+    if not pool:
+        return "", []
+    best = max(pool, key=lambda n: abs(n.get("sentiment", 0)))
+    cite = Citation(source=best.get("source", "news"), field="headline",
+                    value=best["title"], as_of=best.get("date", factors["as_of"]))
+    return best["title"], [cite]
+
+
 def bull_case(ticker: str, factors: dict) -> list[Argument]:
     p = factors["pillars"]
     f = factors["fundamentals"]
@@ -38,10 +51,11 @@ def bull_case(ticker: str, factors: dict) -> list[Argument]:
         args.append(Argument(agent="bull", stance="bull",
             claim=f"{ticker} trades above its 200-day average — a constructive long-term trend.",
             evidence=_cite(factors, "above_sma_200"), confidence=0.55))
-    if news.get("top_positive"):
+    headline, ncite = _news_cite(factors, positive=True)
+    if headline:
         args.append(Argument(agent="bull", stance="bull",
-            claim=f"Recent catalyst supports the thesis: \"{news['top_positive']}\".",
-            evidence=[], confidence=0.5))
+            claim=f"Recent catalyst supports the thesis — news flow: \"{headline}\".",
+            evidence=ncite, confidence=0.5))
     if not args:
         args.append(Argument(agent="bull", stance="bull",
             claim=f"The bull case for {ticker} is thin on current evidence; at best a contrarian value bet.",
@@ -72,10 +86,11 @@ def bear_case(ticker: str, factors: dict) -> list[Argument]:
         args.append(Argument(agent="bear", stance="bear",
             claim=f"{ticker} trades below its 200-day average — a broken long-term trend.",
             evidence=_cite(factors, "above_sma_200"), confidence=0.58))
-    if news.get("top_negative"):
+    headline, ncite = _news_cite(factors, positive=False)
+    if headline:
         args.append(Argument(agent="bear", stance="bear",
-            claim=f"A red flag in the news flow: \"{news['top_negative']}\".",
-            evidence=[], confidence=0.55))
+            claim=f"A red flag in the news flow: \"{headline}\".",
+            evidence=ncite, confidence=0.55))
     if news.get("negative", 0) > news.get("positive", 0):
         args.append(Argument(agent="bear", stance="bear",
             claim=f"Net news flow skews negative ({news['negative']} negative vs {news['positive']} positive headlines).",

@@ -93,6 +93,14 @@ def run_committee(mandate: Mandate, emit: Emitter = None) -> CommitteeResult:
                   payload={"ticker": t, "brief": brief.model_dump(),
                            "factors": {"pillars": f["pillars"], "composite": f["composite"]}},
                   ts=_now()))
+        # Surface the exact headlines (with date, source, sentiment) driving the case.
+        ni = f.get("news_items", [])
+        if ni:
+            ns = f["news_summary"]
+            push(Turn(round=0, agent="research", kind="news",
+                      content=f"{t} news flow ({ns['count']} items, net tilt {ns.get('net_tilt')}): "
+                              + " · ".join(n["title"][:80] for n in ni[:3]),
+                      payload={"ticker": t, "items": ni, "summary": ns}, ts=_now()))
 
     # ---------- Macro (regime context, once) ----------
     result.status = "briefing"

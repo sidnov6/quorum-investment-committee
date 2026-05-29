@@ -25,15 +25,20 @@ def _numbers(text: str) -> list[float]:
 def verify_argument(arg: Argument, tol: float = 0.02) -> tuple[bool, str]:
     """True if every number in the claim matches a citation value (abs or relative)."""
     cited = []
+    claim_text = arg.claim
     for c in arg.evidence:
+        # Text citations (e.g. a news headline) are quoted verbatim in the claim;
+        # numbers inside that quoted text are sourced by definition — strip them out.
+        if isinstance(c.value, str):
+            claim_text = claim_text.replace(c.value, " ")
+            continue
         try:
             cited.append(float(c.value))
         except (TypeError, ValueError):
             continue
         # also allow the percentage form
-    claim_nums = _numbers(arg.claim)
     unmatched = []
-    for n in claim_nums:
+    for n in _numbers(claim_text):
         # ignore small structural integers (years, counts <= 12, round percents are still checked)
         if n.is_integer() and abs(n) <= 12:
             continue
