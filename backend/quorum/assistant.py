@@ -19,14 +19,52 @@ from quorum.universe import UNIVERSE, info, tickers
 _TICKER_RE = re.compile(r"\b([A-Z]{1,5}(?:-[A-Z])?)\b")
 
 _SYSTEM = (
-    "You are the QUORUM Portfolio Assistant — a friendly, sharp investment-committee aide. "
-    "You explain how the committee (bull, bear, macro strategist, quant risk officer, portfolio "
-    "manager, critic) reached its decisions, and you answer questions about stocks in plain English. "
-    "RULES: (1) Only use the numbers in the CONTEXT block — never invent figures. If a number isn't "
-    "given, say you don't have it. (2) Be concise (2-5 sentences unless asked for more). (3) Always "
-    "remind, when giving any view, that this is decision-support, not financial advice. (4) Refer to "
-    "the agents by role to make the committee feel real."
+    "You are the QUORUM Portfolio Assistant — a sharp investment-committee aide. You do two things: "
+    "(A) explain how the committee (bull, bear, macro strategist, quant risk officer, portfolio "
+    "manager, critic) reached its decisions, and (B) reason about market SCENARIOS the user poses "
+    "(e.g. geopolitical conflict, rate shocks, oil spikes) to suggest which names/sectors in the "
+    "universe would likely benefit (buy candidates) vs. suffer (sell/avoid candidates).\n"
+    "RULES:\n"
+    "1. NUMBERS must come only from the CONTEXT block — never invent a figure, price, or return. If a "
+    "specific number isn't in context, speak qualitatively instead.\n"
+    "2. For SCENARIO questions, you MAY reason with general, well-established market cause-and-effect "
+    "(e.g. 'conflict with China would pressure companies with heavy China revenue or supply chains "
+    "like semiconductors and consumer electronics, while defense, domestic energy, and gold miners "
+    "often benefit'). Map that reasoning onto the ACTUAL tickers in the UNIVERSE context, naming "
+    "concrete BUY candidates and SELL/AVOID candidates by ticker and sector.\n"
+    "3. Be structured for scenarios: a one-line thesis, then a short 'Lean into' list and a 'Reduce/avoid' "
+    "list with one reason each. Otherwise be concise (2-5 sentences).\n"
+    "4. ALWAYS end with a one-line reminder that this is decision-support, not financial advice, and "
+    "that scenario views are hypothetical reasoning, not predictions.\n"
+    "5. Refer to the committee agents by role to make it feel like a real desk."
 )
+
+# Lightweight scenario tags → which sectors tend to benefit / suffer. These are
+# qualitative priors that orient the LLM; it still names concrete tickers from the universe.
+_SCENARIO_HINTS = {
+    "china|taiwan|trade war|tariff|conflict|war|invade|attack|geopolit": {
+        "benefit": ["Energy", "Materials", "Utilities", "Consumer Staples"],
+        "suffer": ["Information Technology", "Consumer Discretionary"],
+        "note": "China-exposed tech/semis and consumer hardware face supply-chain and revenue risk; "
+                "domestic energy, miners (incl. gold), defense-like industrials and staples are more defensive.",
+    },
+    "rate|interest|fed|hike|inflation|cpi": {
+        "benefit": ["Financials", "Energy"],
+        "suffer": ["Information Technology", "Real Estate", "Utilities"],
+        "note": "Higher rates pressure long-duration growth/tech, REITs and rate-sensitive utilities; "
+                "banks can benefit from wider margins.",
+    },
+    "oil|energy crisis|opec|crude": {
+        "benefit": ["Energy", "Materials"],
+        "suffer": ["Consumer Discretionary", "Industrials"],
+        "note": "An oil spike helps energy producers but squeezes transport-heavy and discretionary names.",
+    },
+    "recession|slowdown|downturn|crash": {
+        "benefit": ["Consumer Staples", "Utilities", "Health Care"],
+        "suffer": ["Consumer Discretionary", "Financials", "Materials"],
+        "note": "Defensives (staples, utilities, healthcare) hold up; cyclicals and discretionary suffer.",
+    },
+}
 
 
 def _detect_tickers(text: str) -> list[str]:
@@ -106,8 +144,74 @@ def _portfolio_context() -> str:
     return "\n".join(lines)
 
 
+def _detect_scenario(question: str) -> dict | None:
+    """Return the matching scenario hint (sectors that benefit/suffer) if the question
+    is a 'what if X happens' style query."""
+    import re as _re
+    ql = question.lower()
+    for pattern, hint in _SCENARIO_HINTS.items():
+        if _re.search(pattern, ql):
+            return hint
+    # generic scenario trigger words even if no specific hint matched
+    if _re.search(r"\bif\b|\bwhat if\b|\bscenario\b|\bhappens\b|\bwould\b|buy vs sell|which stock", ql):
+        return {"benefit": [], "suffer": [], "note": "General scenario — reason from sector exposure."}
+    return None
+
+
+def _universe_context() -> str:
+    """Full universe grouped by sector — lets the assistant map a scenario onto real tickers."""
+    lines = ["INVESTABLE UNIVERSE (the only tickers you may recommend), grouped by sector:"]
+    sectors: dict[str, list[str]] = {}
+    for t, (name, sector) in UNIVERSE.items():
+        sectors.setdefault(sector, []).append(f"{t} ({name})")
+    for sector, items in sorted(sectors.items()):
+        lines.append(f"  {sector}: " + ", ".join(items))
+    return "\n".join(lines)
+
+
+def _scenario_context(hint: dict) -> str:
+    if not hint:
+        return ""
+    lines = ["SCENARIO REASONING AID (qualitative sector priors — use to pick concrete tickers):"]
+    if hint.get("benefit"):
+        lines.append("  Sectors that typically BENEFIT: " + ", ".join(hint["benefit"]))
+    if hint.get("suffer"):
+        lines.append("  Sectors that typically SUFFER: " + ", ".join(hint["suffer"]))
+    if hint.get("note"):
+        lines.append("  Note: " + hint["note"])
+    return "\n".join(lines)
+
+
+def _deterministic_scenario_answer(hint: dict) -> str:
+    """Sector-based buy/sell suggestion when no LLM is available (or rate-limited)."""
+    by_sec: dict[str, list[str]] = {}
+    for t, (_, sector) in UNIVERSE.items():
+        by_sec.setdefault(sector, []).append(t)
+
+    def _names(sectors: list[str]) -> list[str]:
+        out = []
+        for s in sectors:
+            for t in by_sec.get(s, []):
+                out.append(f"{t} ({info(t)[1]})")
+        return out
+
+    parts = [f"**Scenario view.** {hint.get('note', 'Based on sector exposure within the universe.')}"]
+    buys = _names(hint.get("benefit", []))
+    sells = _names(hint.get("suffer", []))
+    if buys:
+        parts.append("**Lean into (likely beneficiaries):**\n- " + "\n- ".join(buys[:10]))
+    if sells:
+        parts.append("**Reduce / avoid (likely to suffer):**\n- " + "\n- ".join(sells[:10]))
+    parts.append("_Hypothetical scenario reasoning from sector exposure — decision-support only, "
+                 "not financial advice or a prediction._")
+    return "\n\n".join(parts)
+
+
 def _deterministic_answer(question: str, tickers_found: list[str], as_of: str) -> str:
     """Fallback reply when no LLM key is configured — still data-grounded."""
+    scen = _detect_scenario(question)
+    if scen and (scen.get("benefit") or scen.get("suffer")):
+        return _deterministic_scenario_answer(scen)
     parts = []
     if "decision" in question.lower() or "why" in question.lower() or "memo" in question.lower():
         parts.append(_last_decision_context())
@@ -126,12 +230,20 @@ def _deterministic_answer(question: str, tickers_found: list[str], as_of: str) -
 def chat(question: str, history: list[dict] | None = None, as_of: str | None = None) -> dict:
     as_of = as_of or dt.date.today().isoformat()
     found = _detect_tickers(question)
+    scenario = _detect_scenario(question)
 
     # Assemble grounded context.
     ctx_blocks = [_last_decision_context()]
     ql = question.lower()
     if "portfolio" in ql or "holding" in ql or "my " in ql:
         ctx_blocks.append(_portfolio_context())
+    # For scenario questions, give the assistant the full universe + sector priors
+    # so it can name concrete buy/sell candidates instead of dodging.
+    if scenario is not None:
+        ctx_blocks.append(_universe_context())
+        sc = _scenario_context(scenario)
+        if sc:
+            ctx_blocks.append(sc)
     for t in found:
         ctx_blocks.append(_ticker_context(t, as_of))
     context = "\n\n".join(ctx_blocks)
