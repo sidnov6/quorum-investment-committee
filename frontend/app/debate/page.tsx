@@ -3,27 +3,96 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { API, agentColor } from "@/lib/api";
-import { Badge, PillarBar, Spinner } from "@/components/ui";
+import { Badge, Spinner } from "@/components/ui";
 
 const AGENT_LABEL: Record<string, string> = {
   chair: "Chair", research: "Research", bull: "Bull", bear: "Bear",
   macro: "Macro", risk: "Risk Officer", pm: "Portfolio Mgr", critic: "Critic",
 };
 
+// Pacing presets (ms): [time the "thinking" bubble shows, pause after a message lands]
+const SPEEDS: Record<string, { think: number; after: number; label: string }> = {
+  slow: { think: 1100, after: 900, label: "Slow" },
+  natural: { think: 700, after: 550, label: "Natural" },
+  fast: { think: 280, after: 200, label: "Fast" },
+  instant: { think: 0, after: 0, label: "Instant" },
+};
+
 function DebateInner() {
   const sp = useSearchParams();
-  const [turns, setTurns] = useState<any[]>([]);
+  const [turns, setTurns] = useState<any[]>([]);     // what the user sees (revealed)
   const [screen, setScreen] = useState<any[]>([]);
-  const [shortlist, setShortlist] = useState<string[]>([]);
   const [status, setStatus] = useState("idle");
+  const [typing, setTyping] = useState<{ agent: string; ticker?: string } | null>(null);
   const [final, setFinal] = useState<any>(null);
   const [live, setLive] = useState(false);
+  const [speed, setSpeed] = useState<keyof typeof SPEEDS>("natural");
+
   const esRef = useRef<EventSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const bufferRef = useRef<any[]>([]);              // received but not yet revealed
+  const pendingFinalRef = useRef<any>(null);        // hold final until buffer drains
+  const streamDoneRef = useRef(false);
+  const pumpingRef = useRef(false);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
+
+  // Reveal loop: pops one turn at a time, shows a "thinking" indicator first.
+  function pump() {
+    if (pumpingRef.current) return;
+    pumpingRef.current = true;
+
+    const step = () => {
+      const buf = bufferRef.current;
+      if (buf.length === 0) {
+        if (streamDoneRef.current) {
+          // everything shown — now apply the final decision card
+          setTyping(null);
+          if (pendingFinalRef.current) {
+            const f = pendingFinalRef.current;
+            setFinal(f);
+            setStatus(f.status);
+            setLive(false);
+            try { localStorage.setItem("quorum:lastRun", JSON.stringify(f)); } catch {}
+          }
+          pumpingRef.current = false;
+          return;
+        }
+        // waiting for more events — poll shortly
+        setTimeout(step, 120);
+        return;
+      }
+
+      const t = buf[0];
+      const { think, after } = SPEEDS[speedRef.current];
+
+      // Briefing/screen turn carries the shortlist payload — surface it immediately.
+      if (t.kind === "brief" && t.agent === "chair" && t.payload?.screen) {
+        setScreen(t.payload.screen);
+      }
+
+      const showThink = think > 0 && t.agent !== "chair";
+      setStatus(t.agent);
+      if (showThink) setTyping({ agent: t.agent, ticker: t.payload?.ticker });
+
+      setTimeout(() => {
+        bufferRef.current = bufferRef.current.slice(1);
+        setTyping(null);
+        setTurns((prev) => [...prev, t]);
+        setTimeout(step, after);
+      }, showThink ? think : 0);
+    };
+
+    step();
+  }
 
   function start() {
-    setTurns([]); setScreen([]); setShortlist([]); setFinal(null);
+    esRef.current?.close();
+    setTurns([]); setScreen([]); setFinal(null); setTyping(null);
+    bufferRef.current = []; pendingFinalRef.current = null;
+    streamDoneRef.current = false; pumpingRef.current = false;
     setStatus("convening"); setLive(true);
+
     const params = new URLSearchParams();
     params.set("as_of_date", sp.get("as_of") || new Date().toISOString().slice(0, 10));
     params.set("shortlist_k", sp.get("k") || "8");
@@ -32,34 +101,28 @@ function DebateInner() {
     const es = new EventSource(`${API}/api/committee/stream?${params.toString()}`);
     esRef.current = es;
     es.addEventListener("turn", (e: any) => {
-      const t = JSON.parse(e.data);
-      if (t.kind === "brief" && t.agent === "chair") {
-        setScreen(t.payload?.screen || []);
-        setShortlist(t.payload?.shortlist || []);
-      }
-      setStatus(t.kind === "decision" ? "deciding" : t.agent);
-      setTurns((prev) => [...prev, t]);
+      bufferRef.current.push(JSON.parse(e.data));
+      pump();
     });
     es.addEventListener("final", (e: any) => {
-      const f = JSON.parse(e.data);
-      setFinal(f);
-      setStatus(f.status);
-      setLive(false);
-      try { localStorage.setItem("quorum:lastRun", JSON.stringify(f)); } catch {}
+      pendingFinalRef.current = JSON.parse(e.data);
+      streamDoneRef.current = true;
       es.close();
+      pump();
     });
-    es.onerror = () => { setLive(false); es.close(); };
+    es.onerror = () => { streamDoneRef.current = true; es.close(); pump(); };
   }
 
   useEffect(() => { start(); return () => esRef.current?.close(); // eslint-disable-next-line
   }, []);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [turns]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [turns, typing]);
 
   const side = (a: string) => (a === "bull" ? "left" : a === "bear" ? "right" : "center");
+  const remaining = bufferRef.current.length;
 
   return (
     <div>
-      <div className="mb-6 flex items-end justify-between">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-ink">Debate Floor</h1>
           <p className="mt-1 text-sm text-ink-soft">
@@ -67,10 +130,21 @@ function DebateInner() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* speed control */}
+          <div className="flex items-center rounded-full border border-surface-line bg-white p-0.5 text-xs">
+            {Object.entries(SPEEDS).map(([k, v]) => (
+              <button key={k} onClick={() => setSpeed(k as any)}
+                className={`rounded-full px-2.5 py-1 font-medium transition ${
+                  speed === k ? "bg-brand text-white" : "text-ink-faint hover:text-ink"}`}>
+                {v.label}
+              </button>
+            ))}
+          </div>
           {live && (
             <span className="chip bg-brand/10 text-brand">
               <span className="live-dot mr-1 inline-block h-2 w-2 rounded-full bg-brand" />
-              {AGENT_LABEL[status] || status}
+              {typing ? `${AGENT_LABEL[typing.agent]} is thinking…`
+                      : `${AGENT_LABEL[status] || status} in session`}
             </span>
           )}
           <button onClick={start} disabled={live} className="btn-primary">
@@ -103,7 +177,9 @@ function DebateInner() {
       {/* Live transcript: bull left, bear right, others center */}
       <div className="card p-2 sm:p-5">
         <div className="max-h-[60vh] space-y-2 overflow-y-auto px-1">
-          {turns.length === 0 && <div className="p-8"><Spinner label="Convening the committee…" /></div>}
+          {turns.length === 0 && !typing &&
+            <div className="p-8"><Spinner label="Convening the committee…" /></div>}
+
           {turns.map((t, i) => {
             const s = side(t.agent);
             return (
@@ -137,8 +213,37 @@ function DebateInner() {
               </div>
             );
           })}
+
+          {/* "thinking" indicator for the agent about to speak */}
+          {typing && (
+            <div className={`flex animate-fadeUp ${
+              side(typing.agent) === "left" ? "justify-start"
+              : side(typing.agent) === "right" ? "justify-end" : "justify-center"}`}>
+              <div className={`rounded-xl border px-4 py-3 ${
+                side(typing.agent) === "left" ? "border-bull/20 bg-bull/[0.04]"
+                : side(typing.agent) === "right" ? "border-bear/20 bg-bear/[0.04]"
+                : "border-surface-line bg-surface-subtle"}`}>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className={`text-xs font-bold ${agentColor[typing.agent] || "text-ink-soft"}`}>
+                    {AGENT_LABEL[typing.agent] || typing.agent}
+                  </span>
+                  {typing.ticker && <Badge>{typing.ticker}</Badge>}
+                </div>
+                <div className="flex gap-1">
+                  <span className="dot" /><span className="dot" style={{ animationDelay: ".15s" }} />
+                  <span className="dot" style={{ animationDelay: ".3s" }} />
+                </div>
+              </div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
+
+        {live && (
+          <div className="mt-2 px-1 text-[11px] text-ink-faint">
+            {typing ? "deliberating…" : remaining > 0 ? `${remaining} more contribution(s) queued` : "listening…"}
+          </div>
+        )}
       </div>
 
       {/* Decision summary + links */}
@@ -170,6 +275,12 @@ function DebateInner() {
           </div>
         </div>
       )}
+
+      <style jsx global>{`
+        .dot { width:6px;height:6px;border-radius:9999px;background:#8792a2;display:inline-block;
+               animation:bounce 1s infinite ease-in-out; }
+        @keyframes bounce { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+      `}</style>
     </div>
   );
 }
