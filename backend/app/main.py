@@ -33,6 +33,7 @@ from quorum.schemas import Mandate
 from quorum.store import db
 from quorum.universe import UNIVERSE, by_sector, info, tickers
 from quorum import paper
+from quorum import assistant
 
 app = FastAPI(title="QUORUM API", version="1.0")
 app.add_middleware(
@@ -52,6 +53,12 @@ class CommitteeRequest(BaseModel):
     horizon_days: int = 60
     shortlist_k: int = 8
     benchmark: str = "SPY"
+
+
+class ChatRequest(BaseModel):
+    question: str
+    history: list[dict] = []
+    as_of_date: str | None = None
 
 
 class BacktestRequest(BaseModel):
@@ -148,6 +155,11 @@ def committee_runs():
 @app.get("/api/committee/runs/{run_id}")
 def committee_run_get(run_id: int):
     return db.get_committee_run(run_id) or {"error": "not found"}
+
+
+@app.post("/api/assistant/chat")
+def assistant_chat(req: ChatRequest):
+    return assistant.chat(req.question, req.history, req.as_of_date)
 
 
 @app.post("/api/backtest/run")

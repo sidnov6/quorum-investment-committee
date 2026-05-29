@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Sidebar from "@/components/Sidebar";
+import Assistant from "@/components/Assistant";
 
 export const metadata: Metadata = {
   title: "QUORUM — AI Investment Committee",
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="mx-auto max-w-6xl px-6 py-8">{children}</div>
           </main>
         </div>
+        <Assistant />
       </body>
     </html>
   );
