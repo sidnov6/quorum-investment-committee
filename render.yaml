@@ -1,0 +1,21 @@
+# Render blueprint — deploys the QUORUM FastAPI backend (always-on web service).
+# Use: render.com → New → Blueprint → connect this repo. Free tier works.
+services:
+  - type: web
+    name: quorum-api
+    runtime: python
+    region: frankfurt
+    plan: free
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.4"
+      - key: SEC_USER_AGENT
+        value: "QUORUM Research sidnov6@gmail.com"
+      - key: GROQ_API_KEY
+        sync: false        # set this in the Render dashboard (secret)
+      - key: LLM_PROVIDER
+        value: "groq"
