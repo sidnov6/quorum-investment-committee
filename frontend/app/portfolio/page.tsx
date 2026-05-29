@@ -35,7 +35,7 @@ export default function Portfolio() {
   return (
     <div>
       <PageHeader title="Paper Portfolio"
-        subtitle="A live $10,000 track record. Each meeting the committee rebalances; no real capital is traded."
+        subtitle="The live $10,000 account — one continuous track record that moves only when a committee meeting fires. Distinct from the simulated backtests. No real capital is traded."
         action={
           <div className="flex items-center gap-2">
             <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)}

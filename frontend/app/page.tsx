@@ -49,10 +49,14 @@ export default function Overview() {
       </div>
 
       {/* Headline stats from latest backtest */}
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-ink">Latest evaluated track record</h2>
         {bt && <span className="text-xs text-ink-faint">{bt.start} → {bt.end}</span>}
       </div>
+      <p className="mb-3 text-xs text-ink-faint">
+        Simulated <b>backtest</b> — a historical “what-if” replay over the date range above, starting
+        from $10k. Re-runs with different dates produce different results. Not the live account.
+      </p>
       {loading ? (
         <div className="card p-8 text-sm text-ink-faint">Loading…</div>
       ) : !bt ? (

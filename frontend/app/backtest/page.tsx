@@ -29,7 +29,7 @@ export default function Backtest() {
   return (
     <div>
       <PageHeader title="Backtest"
-        subtitle="Replay the committee across history, point-in-time. Honest evaluation — costs included, no lookahead." />
+        subtitle="A simulated 'what-if' replay of the committee across a historical date range — results vary by range/settings and are separate from the live Paper Portfolio. Point-in-time, costs included, no lookahead." />
 
       <div className="card mb-6 p-5">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
