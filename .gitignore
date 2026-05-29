@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+backend/.env
+backend/data/snapshots/*
+backend/data/store/*.db
+!backend/data/snapshots/.gitkeep
+
+# Node / Next
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# OS / editor
+.DS_Store
+*.log
+/tmp/

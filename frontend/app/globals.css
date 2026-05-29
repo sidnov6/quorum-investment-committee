@@ -1,0 +1,73 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #635bff;
+}
+
+html, body {
+  background: #f6f9fc;
+  color: #0a2540;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Stripe's signature angled gradient */
+.stripe-gradient {
+  background: linear-gradient(120deg, #635bff 0%, #4b45c6 28%, #00d4ff 72%, #80e9ff 100%);
+}
+.stripe-hero {
+  background:
+    radial-gradient(1200px 400px at 70% -10%, rgba(99,91,255,0.25), transparent 60%),
+    linear-gradient(180deg, #0a2540 0%, #0a2540 100%);
+}
+.gradient-text {
+  background: linear-gradient(90deg, #635bff, #00b3ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl shadow-card border border-surface-line;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand px-5 py-2.5
+           text-sm font-semibold text-white shadow-sm transition
+           hover:bg-brand-dark active:scale-[0.98] disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold
+           text-ink-soft hover:bg-surface-subtle transition;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium font-mono;
+  }
+  .stat-label { @apply text-xs font-medium uppercase tracking-wide text-ink-faint; }
+  .stat-value { @apply text-2xl font-bold text-ink tracking-tight; }
+  .nav-item {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-ink-soft
+           transition hover:bg-surface-subtle hover:text-ink;
+  }
+  .nav-item-active {
+    @apply bg-brand/10 text-brand hover:bg-brand/10 hover:text-brand;
+  }
+}
+
+/* subtle scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #d4deea; border-radius: 8px; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeUp { animation: fadeUp 0.35s ease both; }
+
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; } 50% { opacity: 0.3; }
+}
+.live-dot { animation: pulse-dot 1.2s ease-in-out infinite; }

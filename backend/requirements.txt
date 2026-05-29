@@ -1,0 +1,12 @@
+yfinance>=0.2.40
+pandas>=2.0
+numpy>=1.24
+scipy>=1.10
+requests>=2.31
+httpx>=0.27
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.5
+pydantic-settings>=2.0
+sse-starlette>=2.0
+python-dotenv>=1.0
