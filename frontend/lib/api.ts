@@ -1,4 +1,7 @@
-export const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8077";
+// Default to the deployed backend so the production bundle never references localhost.
+// Local dev overrides this via .env.development.local (NEXT_PUBLIC_API_URL=127.0.0.1:8077).
+export const API =
+  process.env.NEXT_PUBLIC_API_URL || "https://quorum-api-a81d.onrender.com";
 
 export async function getJSON<T = any>(path: string): Promise<T> {
   const r = await fetch(`${API}${path}`, { cache: "no-store" });
