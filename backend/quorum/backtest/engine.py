@@ -143,9 +143,12 @@ def _performance(curve: list[dict], starting_cash: float) -> dict:
     s = pd.Series([c["value"] for c in curve],
                   index=pd.to_datetime([c["date"] for c in curve]))
     rets = s.pct_change().dropna()
-    total_return = s.iloc[-1] / s.iloc[0] - 1
+    # Measure return against the actual starting capital so it reconciles with
+    # final_value / starting_cash shown in the UI (fixes display mismatch).
+    base = starting_cash if starting_cash else s.iloc[0]
+    total_return = s.iloc[-1] / base - 1
     years = len(s) / 252
-    cagr = (s.iloc[-1] / s.iloc[0]) ** (1 / years) - 1 if years > 0 else 0
+    cagr = (s.iloc[-1] / base) ** (1 / years) - 1 if years > 0 else 0
     vol = rets.std() * (252 ** 0.5) if len(rets) > 1 else 0
     sharpe = (rets.mean() / rets.std() * (252 ** 0.5)) if rets.std() else 0
     cummax = s.cummax()
