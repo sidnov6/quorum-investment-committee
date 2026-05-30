@@ -5,9 +5,24 @@ import { useLastRun } from "@/lib/useLastRun";
 import { PageHeader, Badge, Spinner } from "@/components/ui";
 import { fmtPct } from "@/lib/api";
 
+// Largest-remainder rounding so displayed weights total exactly 100%.
+function pctsTo100(weights: number[]): number[] {
+  const scaled = weights.map((w) => w * 1000);
+  const floors = scaled.map(Math.floor);
+  let remainder = 1000 - floors.reduce((a, b) => a + b, 0);
+  const order = scaled
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac);
+  const out = [...floors];
+  for (let k = 0; k < remainder && k < order.length; k++) out[order[k].i] += 1;
+  return out.map((v) => v / 10); // one decimal, summing to 100.0
+}
+
 export default function Memo() {
   const { run, loading } = useLastRun();
   const [gate, setGate] = useState<"pending" | "approved" | "rejected">("pending");
+  const [editing, setEditing] = useState(false);
+  const [edited, setEdited] = useState<Record<string, number>>({});
 
   if (loading) return <Spinner label="Loading decision memo…" />;
   if (!run?.decision)
@@ -20,6 +35,20 @@ export default function Memo() {
 
   const d = run.decision;
   const invested = d.positions.filter((p: any) => p.target_weight > 0);
+  // Display weights normalized to total exactly 100% (incl. cash).
+  const allRows = [...invested.map((p: any) => p.target_weight), d.cash_weight];
+  const display100 = pctsTo100(allRows);
+  const dispWeight: Record<string, number> = {};
+  invested.forEach((p: any, i: number) => (dispWeight[p.ticker] = display100[i]));
+  const dispCash = display100[display100.length - 1];
+
+  function startEdit() {
+    const init: Record<string, number> = {};
+    invested.forEach((p: any) => (init[p.ticker] = Math.round(p.target_weight * 1000) / 10));
+    setEdited(init);
+    setEditing(true);
+  }
+  const editedSum = Object.values(edited).reduce((a, b) => a + b, 0);
 
   return (
     <div>
@@ -56,16 +85,34 @@ export default function Memo() {
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-ink-faint">conf {p.confidence}</span>
-                <span className="w-14 text-right font-mono font-semibold text-brand">
-                  {fmtPct(p.target_weight)}
-                </span>
+                {editing ? (
+                  <span className="flex items-center gap-1">
+                    <input type="number" min={0} max={100} step={0.1}
+                      value={edited[p.ticker] ?? 0}
+                      onChange={(e) => setEdited({ ...edited, [p.ticker]: +e.target.value })}
+                      className="w-20 rounded border border-surface-line px-2 py-1 text-right font-mono text-sm" />
+                    <span className="text-ink-faint">%</span>
+                  </span>
+                ) : (
+                  <span className="w-14 text-right font-mono font-semibold text-brand">
+                    {dispWeight[p.ticker]?.toFixed(1)}%
+                  </span>
+                )}
               </div>
             </div>
           ))}
           <div className="flex items-center justify-between py-2 text-sm">
             <span className="font-mono font-semibold text-ink-soft">CASH</span>
-            <span className="font-mono font-semibold text-ink-soft">{fmtPct(d.cash_weight)}</span>
+            <span className="font-mono font-semibold text-ink-soft">
+              {editing ? `${Math.max(0, 100 - editedSum).toFixed(1)}%` : `${dispCash.toFixed(1)}%`}
+            </span>
           </div>
+          {editing && (
+            <div className={`mt-1 text-right text-xs font-medium ${
+              editedSum > 100 ? "text-bear" : "text-ink-faint"}`}>
+              Positions total {editedSum.toFixed(1)}% {editedSum > 100 && "— exceeds 100%"}
+            </div>
+          )}
         </div>
       </div>
 
@@ -95,14 +142,25 @@ export default function Memo() {
       <div className="card mt-6 p-6">
         <h3 className="mb-3 font-semibold text-ink">Human gate</h3>
         {gate === "pending" ? (
-          <div className="flex items-center gap-3">
-            <button onClick={() => setGate("approved")} className="btn-primary !bg-bull">Approve</button>
-            <button className="btn-ghost">Edit weights</button>
-            <button onClick={() => setGate("rejected")} className="btn-ghost !text-bear">Reject</button>
-            <span className="ml-2 text-xs text-ink-faint">
-              The committee recommends; a human decides. No capital is deployed.
-            </span>
-          </div>
+          editing ? (
+            <div className="flex items-center gap-3">
+              <button onClick={() => setEditing(false)} disabled={editedSum > 100}
+                className="btn-primary">Save weights</button>
+              <button onClick={() => setEditing(false)} className="btn-ghost">Cancel</button>
+              <span className="ml-2 text-xs text-ink-faint">
+                Adjust the committee's weights before approving (paper override; remainder goes to cash).
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <button onClick={() => setGate("approved")} className="btn-primary !bg-bull">Approve</button>
+              <button onClick={startEdit} className="btn-ghost">Edit weights</button>
+              <button onClick={() => setGate("rejected")} className="btn-ghost !text-bear">Reject</button>
+              <span className="ml-2 text-xs text-ink-faint">
+                The committee recommends; a human decides. No capital is deployed.
+              </span>
+            </div>
+          )
         ) : (
           <Badge tone={gate === "approved" ? "bull" : "bear"}>
             {gate === "approved" ? "Approved by reviewer (paper)" : "Rejected by reviewer"}

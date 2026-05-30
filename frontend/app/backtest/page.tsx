@@ -13,7 +13,20 @@ export default function Backtest() {
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState("");
 
+  function validate(): string {
+    if (!start || !end) return "Pick both a start and end date.";
+    if (new Date(end) <= new Date(start)) return "End date must be after the start date.";
+    if (new Date(end) > new Date()) return "End date can't be in the future.";
+    if (!Number.isFinite(reb) || reb < 1) return "Rebalance must be at least 1 trading day.";
+    if (!Number.isFinite(cash) || cash <= 0) return "Starting cash must be greater than $0.";
+    const days = (new Date(end).getTime() - new Date(start).getTime()) / 86400000;
+    if (days < reb) return "Date range is shorter than one rebalance period.";
+    return "";
+  }
+
   async function run() {
+    const v = validate();
+    if (v) { setErr(v); setRes(null); return; }
     setRunning(true); setErr(""); setRes(null);
     try {
       const r = await postJSON("/api/backtest/run", {
@@ -24,6 +37,7 @@ export default function Backtest() {
     setRunning(false);
   }
 
+  const invalid = validate();
   const m = res?.metrics;
 
   return (
@@ -38,15 +52,21 @@ export default function Backtest() {
           <Field label="Rebalance (days)"><input type="number" value={reb} onChange={(e) => setReb(+e.target.value)} className="inp" /></Field>
           <Field label="Starting cash"><input type="number" value={cash} onChange={(e) => setCash(+e.target.value)} className="inp" /></Field>
           <div className="flex items-end">
-            <button onClick={run} disabled={running} className="btn-primary w-full">
+            <button onClick={run} disabled={running || !!invalid} title={invalid || ""}
+              className="btn-primary w-full">
               {running ? "Running…" : "Run backtest"}
             </button>
           </div>
         </div>
-        <p className="mt-3 text-xs text-ink-faint">
-          Screens the full 51-name universe and convenes the committee every {reb} trading days.
-          First run for a date range fetches data (slower); subsequent runs are cached.
-        </p>
+        {invalid ? (
+          <p className="mt-3 text-xs font-medium text-bear">⚠ {invalid}</p>
+        ) : (
+          <p className="mt-3 text-xs text-ink-faint">
+            Screens the full 51-name universe and convenes the committee every {reb} trading
+            {reb === 1 ? " day" : " days"}. First run for a date range fetches data (slower);
+            subsequent runs are cached.
+          </p>
+        )}
       </div>
 
       {running && <div className="card p-8"><Spinner label="Convening committees across history…" /></div>}

@@ -60,8 +60,9 @@ export default function Assistant() {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 flex h-[560px] w-[400px] max-w-[calc(100vw-3rem)]
-                        flex-col overflow-hidden rounded-2xl border border-surface-line bg-white shadow-lift animate-fadeUp">
+        <div className="fixed bottom-24 right-6 z-50 flex h-[560px] max-h-[calc(100vh-7rem)] w-[400px]
+                        max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border
+                        border-surface-line bg-white shadow-lift animate-fadeUp">
           {/* Header */}
           <div className="stripe-hero flex items-center gap-3 px-4 py-3 text-white">
             <div className="stripe-gradient flex h-9 w-9 items-center justify-center rounded-xl font-extrabold">Q</div>

@@ -73,11 +73,13 @@ def get_macro(as_of: str) -> dict:
             citations.append({"source": "FRED", "field": sid, "value": v["value"], "as_of": v["date"]})
 
     if not signals:
+        # Clean, user-facing fallback — no internal/dev messaging leaks to the UI.
         return {
             "available": False,
-            "regime": "unknown (no FRED key)",
+            "regime": "neutral",
             "tilt": 0.0,
-            "summary": "Macro data unavailable; committee proceeds on single-name + price evidence.",
+            "summary": "Macro signals unavailable; the committee weighs the single-name and price "
+                       "evidence without a regime tilt.",
             "signals": {},
             "citations": [],
         }

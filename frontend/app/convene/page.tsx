@@ -53,13 +53,21 @@ export default function Convene() {
             onChange={(e) => setK(Number(e.target.value))}
             className="mt-2 w-full accent-brand" />
 
-          <label className="mt-5 flex items-center gap-2 text-sm font-medium text-ink-soft">
-            <input type="checkbox" checked={useAll} onChange={(e) => setUseAll(e.target.checked)}
-              className="accent-brand" />
+          <label htmlFor="useAll"
+            className="mt-5 flex cursor-pointer items-center gap-2 text-sm font-medium text-ink-soft">
+            <input id="useAll" type="checkbox" checked={useAll}
+              onChange={(e) => setUseAll(e.target.checked)} className="accent-brand" />
             Screen the full {universe?.count ?? ""}-name universe
           </label>
 
-          <button onClick={convene} className="btn-primary mt-6 w-full">
+          {!useAll && selected.size === 0 && (
+            <p className="mt-3 text-xs font-medium text-bear">
+              ⚠ Select at least one ticker, or enable “Screen the full universe.”
+            </p>
+          )}
+
+          <button onClick={convene} disabled={!useAll && selected.size === 0}
+            className="btn-primary mt-6 w-full">
             Convene committee →
           </button>
         </div>

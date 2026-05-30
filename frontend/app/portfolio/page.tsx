@@ -11,6 +11,7 @@ export default function Portfolio() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [asOf, setAsOf] = useState("");
+  const [toast, setToast] = useState("");
 
   async function load() {
     try { setSnap(await getJSON("/api/portfolio")); } catch {}
@@ -19,12 +20,15 @@ export default function Portfolio() {
   useEffect(() => { load(); setAsOf(new Date().toISOString().slice(0, 10)); }, []);
 
   async function runToday() {
-    setRunning(true);
+    setRunning(true); setToast("");
     try {
-      await postJSON(`/api/portfolio/run-today${asOf ? `?as_of_date=${asOf}` : ""}`, {});
+      const r = await postJSON(`/api/portfolio/run-today${asOf ? `?as_of_date=${asOf}` : ""}`, {});
       await load();
-    } catch {}
+      if (r?.skipped) setToast(`Already ran for ${asOf} — showing existing result.`);
+      else setToast(`Committee convened for ${r?.as_of || asOf}. Portfolio rebalanced.`);
+    } catch { setToast("Couldn't reach the committee server."); }
     setRunning(false);
+    setTimeout(() => setToast(""), 6000);
   }
 
   if (loading) return <Spinner label="Loading paper portfolio…" />;
@@ -47,6 +51,12 @@ export default function Portfolio() {
           </div>
         } />
 
+      {toast && (
+        <div className="mb-4 rounded-lg border border-brand/30 bg-brand/5 px-4 py-2.5 text-sm font-medium text-brand animate-fadeUp">
+          {toast}
+        </div>
+      )}
+
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Portfolio value" value={fmtUSD(snap?.value || 10000)}
           sub={snap?.last_run ? `last run ${snap.last_run}` : "not started"} />
@@ -63,6 +73,39 @@ export default function Portfolio() {
           <p className="text-sm text-ink-soft">
             No track record yet. Pick a date and run the committee to start building one —
             run it across several dates to grow the curve.
+          </p>
+        </div>
+      )}
+
+      {/* The decision the committee actually executed for THIS portfolio — so the
+          documented allocation always reconciles with the holdings below. */}
+      {snap?.last_decision && (
+        <div className="card mb-6 p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-ink">Documented allocation (last executed)</h3>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-faint">as of {snap.last_run}</span>
+              <Badge tone="brand">confidence {snap.last_decision.confidence}</Badge>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {snap.last_decision.positions
+              .filter((p: any) => p.target_weight > 0)
+              .sort((a: any, b: any) => b.target_weight - a.target_weight)
+              .map((p: any) => (
+                <span key={p.ticker} className="chip bg-brand/10 text-brand">
+                  {p.ticker} {(p.target_weight * 100).toFixed(1)}%
+                </span>
+              ))}
+            <span className="chip bg-surface-subtle text-ink-soft">
+              CASH {((snap.last_decision.cash_weight || 0) * 100).toFixed(1)}%
+            </span>
+          </div>
+          <p className="mt-3 text-xs text-ink-faint">
+            These are the exact weights the committee voted; the holdings below are this allocation
+            applied to ${(snap.value || 0).toLocaleString()}. The standalone
+            <Link href="/memo" className="text-brand"> Decision Memo</Link> reflects the most recent
+            <i> convened</i> committee, which may use a different shortlist size.
           </p>
         </div>
       )}

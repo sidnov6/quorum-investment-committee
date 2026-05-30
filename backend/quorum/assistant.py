@@ -134,13 +134,33 @@ def _last_decision_context() -> str:
 
 def _portfolio_context() -> str:
     from quorum import paper
+    from quorum.tools.risk import compute_risk_metrics
     snap = paper.snapshot()
     if not snap.get("curve"):
         return "The paper portfolio has no track record yet."
     lines = [f"Paper portfolio: value ${snap['value']:,.2f} "
-             f"({snap['total_return']*100:+.1f}% since inception), cash ${snap.get('cash',0):,.2f}."]
-    for h in snap.get("holdings", [])[:8]:
+             f"({snap['total_return']*100:+.1f}% since inception), cash ${snap.get('cash',0):,.2f}, "
+             f"holding {len(snap.get('holdings', []))} names as of {snap.get('last_run','n/a')}."]
+    holds = snap.get("holdings", [])
+    for h in holds[:10]:
         lines.append(f"  holds {h['ticker']} ({h['sector']}): ${h['value']:,.2f}")
+
+    # Ground the assistant in the SAME risk metrics shown on the Risk Desk.
+    try:
+        total = sum(h["value"] for h in holds) or 1
+        weights = {h["ticker"]: h["value"] / total for h in holds}
+        rm = compute_risk_metrics(list(weights), weights, snap.get("last_run"))
+        port = rm.get("portfolio", {})
+        if port:
+            lines.append(f"Portfolio risk: annualized vol {port.get('annualized_vol')}, "
+                         f"1-day 95% VaR {port.get('var_1d_hist')}, max drawdown "
+                         f"{port.get('max_drawdown')}, Sharpe {port.get('sharpe')}.")
+        for t, r in rm.get("per_ticker", {}).items():
+            if r.get("available"):
+                lines.append(f"  {t} risk: vol {r['annualized_vol']}, beta {r.get('beta')}, "
+                             f"max_drawdown {r['max_drawdown']}, VaR {r['var_1d_hist']}.")
+    except Exception:
+        pass
     return "\n".join(lines)
 
 
