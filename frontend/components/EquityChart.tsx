@@ -32,6 +32,22 @@ export default function EquityChart({ data, showBenchmark = true, height = 320 }
     return `${String(d.getFullYear()).slice(2)}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   };
 
+  // Explicit one-tick-per-month positions so labels never duplicate (fixes M7).
+  const monthTicks: number[] = (() => {
+    const seen = new Set<string>();
+    const ticks: number[] = [];
+    for (const r of rows) {
+      const d = new Date(r.t);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (!seen.has(key)) { seen.add(key); ticks.push(r.t); }
+    }
+    // Thin out if too many months to keep labels readable.
+    const max = 9;
+    if (ticks.length <= max) return ticks;
+    const step = Math.ceil(ticks.length / max);
+    return ticks.filter((_, i) => i % step === 0);
+  })();
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={rows} margin={{ top: 10, right: 8, left: 8, bottom: 0 }}>
@@ -44,7 +60,8 @@ export default function EquityChart({ data, showBenchmark = true, height = 320 }
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
         <XAxis
           dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]}
-          tick={{ fontSize: 11, fill: "#8792a2" }} minTickGap={56}
+          ticks={monthTicks} interval={0}
+          tick={{ fontSize: 11, fill: "#8792a2" }}
           tickLine={false} axisLine={{ stroke: "#e6ebf1" }}
           tickFormatter={fmtDate}
         />

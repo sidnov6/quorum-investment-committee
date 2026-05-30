@@ -207,12 +207,23 @@ def assistant_chat(req: ChatRequest):
 
 
 @app.post("/api/backtest/run")
-def backtest_run(req: BacktestRequest):
+def backtest_run(req: BacktestRequest, refresh: bool = False):
     cand = req.candidates or tickers()
+    # Reproducibility: identical params return the stored run (real caching, not a re-roll).
+    cache_key = json.dumps({
+        "c": sorted(cand), "s": req.start, "e": req.end,
+        "r": req.rebalance_days, "cash": req.starting_cash, "b": req.benchmark,
+    }, sort_keys=True)
+    if not refresh:
+        cached = db.get_backtest_by_key(cache_key)
+        if cached:
+            cached["cached"] = True
+            return cached
     result = run_backtest(cand, req.start, req.end, starting_cash=req.starting_cash,
                           rebalance_days=req.rebalance_days, benchmark=req.benchmark)
-    bid = db.save_backtest(req.start, req.end, cand, result)
+    bid = db.save_backtest(req.start, req.end, cand, result, cache_key=cache_key)
     result["id"] = bid
+    result["cached"] = False
     return result
 
 

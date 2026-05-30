@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { postJSON, fmtUSD, fmtPct } from "@/lib/api";
 import { PageHeader, StatCard, Badge, Spinner } from "@/components/ui";
 import EquityChart from "@/components/EquityChart";
@@ -12,6 +12,7 @@ export default function Backtest() {
   const [running, setRunning] = useState(false);
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState("");
+  const runSeq = useRef(0);   // guards against out-of-order responses (N3)
 
   function validate(): string {
     if (!start || !end) return "Pick both a start and end date.";
@@ -27,14 +28,20 @@ export default function Backtest() {
   async function run() {
     const v = validate();
     if (v) { setErr(v); setRes(null); return; }
+    if (running) return;                 // block double-submit while in flight
+    const seq = ++runSeq.current;        // tag this request
     setRunning(true); setErr(""); setRes(null);
     try {
       const r = await postJSON("/api/backtest/run", {
         start, end, rebalance_days: reb, starting_cash: cash,
       });
+      if (seq !== runSeq.current) return; // a newer run superseded this one — drop it
       if (r.error) setErr(r.error); else setRes(r);
-    } catch (e: any) { setErr(String(e.message || e)); }
-    setRunning(false);
+    } catch (e: any) {
+      if (seq === runSeq.current) setErr(String(e.message || e));
+    } finally {
+      if (seq === runSeq.current) setRunning(false);
+    }
   }
 
   const invalid = validate();

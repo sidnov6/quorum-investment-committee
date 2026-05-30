@@ -15,12 +15,20 @@ from quorum.committee.committee import run_committee
 from quorum.config import settings
 from quorum.schemas import Mandate
 from quorum.store import db
-from quorum.tools.prices import get_quote
+from quorum.tools.prices import get_price_history, get_quote
 from quorum.universe import info, tickers
 
 
+def _shares(holdings: dict) -> dict:
+    """Holdings may be stored as {t: shares} (legacy) or {t: {shares,price,value}}."""
+    out = {}
+    for t, v in holdings.items():
+        out[t] = v["shares"] if isinstance(v, dict) else v
+    return out
+
+
 def _value_of(holdings: dict, prices: dict) -> float:
-    return sum(sh * prices.get(t, 0.0) for t, sh in holdings.items())
+    return sum(sh * prices.get(t, 0.0) for t, sh in _shares(holdings).items())
 
 
 def run_daily_step(as_of_date: str | None = None) -> dict:
@@ -55,7 +63,8 @@ def run_daily_step(as_of_date: str | None = None) -> dict:
     target = {p.ticker: p.target_weight for p in result.decision.positions if p.target_weight > 0}
 
     # Rebalance with turnover cost.
-    prev_weights = {t: (sh * prices.get(t, 0) / port_val if port_val else 0) for t, sh in holdings.items()}
+    prev_weights = {t: (sh * prices.get(t, 0) / port_val if port_val else 0)
+                    for t, sh in _shares(holdings).items()}
     turnover = sum(abs(target.get(t, 0) - prev_weights.get(t, 0))
                    for t in set(target) | set(prev_weights))
     cost = port_val * turnover * (settings.TRADING_COST_BPS / 10000.0)
@@ -66,13 +75,14 @@ def run_daily_step(as_of_date: str | None = None) -> dict:
         px = prices.get(t)
         if px and w > 0:
             dollars = port_val * w
-            new_holdings[t] = dollars / px
+            new_holdings[t] = {"shares": dollars / px, "price": px, "value": round(dollars, 2)}
             invested += dollars
     cash = port_val - invested
 
+    # Store shares + the execution price/value per holding so the displayed table
+    # always reconciles with the total (no live re-fetch that can fail/zero out).
     db.record_paper_snapshot(as_of, round(port_val, 2), round(cash, 2),
-                             {t: round(s, 6) for t, s in new_holdings.items()},
-                             result.decision.model_dump())
+                             new_holdings, result.decision.model_dump())
     return {
         "skipped": False,
         "as_of": as_of,
@@ -92,21 +102,36 @@ def snapshot() -> dict:
         return {"value": settings.STARTING_CASH, "starting_cash": settings.STARTING_CASH,
                 "holdings": [], "curve": [], "total_return": 0.0}
     latest = hist[-1]
-    # value holdings at latest snapshot prices (use last recorded value)
+    # Use the execution price/value stored at snapshot time. Only re-fetch a price
+    # if it's missing (legacy rows), and never let a failed fetch zero a holding.
     holdings = []
-    for t, sh in latest["holdings"].items():
-        q = get_quote(t, latest["run_date"])
-        px = q["close"] if q else 0
+    for t, v in latest["holdings"].items():
+        if isinstance(v, dict):
+            sh, px, val = v.get("shares", 0), v.get("price", 0), v.get("value", 0)
+        else:  # legacy {ticker: shares} — recover a price, fall back to last close
+            sh = v
+            q = get_quote(t, latest["run_date"])
+            px = q["close"] if q else 0
+            if not px:
+                hp = get_price_history(t, latest["run_date"])
+                px = float(hp["close"].iloc[-1]) if not hp.empty else 0
+            val = round(sh * px, 2)
         holdings.append({"ticker": t, "name": info(t)[0], "sector": info(t)[1],
-                         "shares": round(sh, 4), "price": px, "value": round(sh * px, 2)})
+                         "shares": round(sh, 4), "price": round(px, 2), "value": round(val, 2)})
     holdings.sort(key=lambda x: x["value"], reverse=True)
+
+    # Hard invariant: reported value == sum(holdings) + cash.
+    holdings_total = round(sum(h["value"] for h in holdings), 2)
+    cash = round(latest["cash"], 2)
+    value = round(holdings_total + cash, 2)
+
     curve = [{"date": h["run_date"], "value": h["value"]} for h in hist]
     start = settings.STARTING_CASH
     return {
-        "value": latest["value"],
-        "cash": latest["cash"],
+        "value": value,
+        "cash": cash,
         "starting_cash": start,
-        "total_return": round(latest["value"] / start - 1, 4),
+        "total_return": round(value / start - 1, 4),
         "holdings": holdings,
         "curve": curve,
         "last_run": latest["run_date"],

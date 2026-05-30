@@ -43,6 +43,10 @@ def cached_fetch(
             pass
 
     payload = fetch_fn()
+    # Never cache empty/failed responses — otherwise one transient API failure
+    # poisons the value for the whole TTL window (this caused ORCL to price at $0).
+    if payload in (None, [], {}):
+        return payload
     try:
         p.write_text(json.dumps({"_fetched_at": time.time(), "payload": payload}, default=str))
     except Exception:

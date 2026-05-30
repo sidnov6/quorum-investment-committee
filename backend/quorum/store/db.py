@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS backtests (
     candidates TEXT NOT NULL,
     final_value REAL,
     total_return REAL,
+    cache_key TEXT,
     result_json TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS paper_portfolio (
@@ -94,6 +95,13 @@ def init_db():
                 c.execute(stmt)
         else:
             c.executescript(_SCHEMA)
+    # Lightweight migration in its own transaction (a failed ALTER must not poison
+    # the main one on Postgres). Adds cache_key to pre-existing backtests tables.
+    try:
+        with conn() as c2:
+            c2.execute("ALTER TABLE backtests ADD COLUMN cache_key TEXT")
+    except Exception:
+        pass  # column already exists
 
 
 def _insert_returning(c, sql_no_id: str, returning_col: str, params: tuple):
@@ -137,17 +145,28 @@ def get_committee_run(run_id: int) -> Optional[dict]:
 
 
 # ---------------- backtests ----------------
-def save_backtest(start: str, end: str, candidates: list[str], result: dict) -> int:
+def save_backtest(start: str, end: str, candidates: list[str], result: dict,
+                  cache_key: str = "") -> int:
     with conn() as c:
         return _insert_returning(
             c,
-            "INSERT INTO backtests (created_at, start_date, end_date, candidates, final_value, total_return, result_json)"
-            f" VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH})",
+            "INSERT INTO backtests (created_at, start_date, end_date, candidates, final_value, total_return, cache_key, result_json)"
+            f" VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})",
             "id",
             (dt.datetime.utcnow().isoformat(), start, end, json.dumps(candidates),
              result.get("final_value"), result.get("metrics", {}).get("total_return"),
-             json.dumps(result, default=str)),
+             cache_key, json.dumps(result, default=str)),
         )
+
+
+def get_backtest_by_key(cache_key: str) -> Optional[dict]:
+    with conn() as c:
+        row = c.execute(_q(
+            "SELECT result_json FROM backtests WHERE cache_key=? ORDER BY id DESC LIMIT 1"),
+            (cache_key,)).fetchone()
+        if not row:
+            return None
+        return json.loads(row["result_json"] if isinstance(row, dict) else row[0])
 
 
 def list_backtests(limit: int = 50) -> list[dict]:
