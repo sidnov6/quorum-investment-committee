@@ -62,6 +62,15 @@ def run_daily_step(as_of_date: str | None = None) -> dict:
     result = run_committee(mandate)
     target = {p.ticker: p.target_weight for p in result.decision.positions if p.target_weight > 0}
 
+    # Drop any name we genuinely can't price (after the Stooq fallback) and
+    # REDISTRIBUTE its weight across the priceable names — so a data gap never
+    # silently parks the committee's intended allocation in cash.
+    priceable = {t: w for t, w in target.items() if prices.get(t)}
+    dropped = [t for t in target if t not in priceable]
+    wsum = sum(priceable.values())
+    if wsum > 0:
+        target = {t: w / wsum * sum(target.values()) for t, w in priceable.items()}
+
     # Rebalance with turnover cost.
     prev_weights = {t: (sh * prices.get(t, 0) / port_val if port_val else 0)
                     for t, sh in _shares(holdings).items()}
@@ -79,10 +88,16 @@ def run_daily_step(as_of_date: str | None = None) -> dict:
             invested += dollars
     cash = port_val - invested
 
+    # Record what was ACTUALLY executed so the memo/allocation card matches holdings.
+    executed = {t: round(w, 4) for t, w in target.items()}
+    decision_dump = result.decision.model_dump()
+    decision_dump["executed_weights"] = executed
+    decision_dump["unpriced_dropped"] = dropped
+
     # Store shares + the execution price/value per holding so the displayed table
     # always reconciles with the total (no live re-fetch that can fail/zero out).
     db.record_paper_snapshot(as_of, round(port_val, 2), round(cash, 2),
-                             new_holdings, result.decision.model_dump())
+                             new_holdings, decision_dump)
     return {
         "skipped": False,
         "as_of": as_of,

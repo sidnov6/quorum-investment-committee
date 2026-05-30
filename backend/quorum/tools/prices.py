@@ -21,6 +21,64 @@ _FULL_HISTORY_START = "2015-01-01"
 _MEM: dict[str, pd.DataFrame] = {}
 
 
+def _yf_history(ticker: str) -> list[dict]:
+    try:
+        import yfinance as yf
+
+        df = yf.download(
+            ticker,
+            start=_FULL_HISTORY_START,
+            end=(dt.date.today() + dt.timedelta(days=1)).isoformat(),
+            progress=False,
+            auto_adjust=True,
+            threads=False,
+        )
+    except Exception:
+        return []
+    if df is None or df.empty:
+        return []
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df = df.rename(columns=str.lower).reset_index()
+    date_col = "Date" if "Date" in df.columns else df.columns[0]
+    return [
+        {
+            "date": str(r[date_col])[:10],
+            "open": float(r.get("open", 0) or 0),
+            "high": float(r.get("high", 0) or 0),
+            "low": float(r.get("low", 0) or 0),
+            "close": float(r.get("close", 0) or 0),
+            "volume": float(r.get("volume", 0) or 0),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+def _stooq_history(ticker: str) -> list[dict]:
+    """Free daily OHLCV from Stooq CSV — reliable fallback when yfinance is blocked."""
+    import requests
+
+    sym = ticker.lower().replace("-", "-") + ".us"  # Stooq US suffix (e.g. brk-b.us)
+    try:
+        r = requests.get("https://stooq.com/q/d/l/", params={"s": sym, "i": "d"}, timeout=20)
+        if r.status_code != 200 or "Date" not in r.text[:50]:
+            return []
+        out = []
+        for line in r.text.strip().splitlines()[1:]:
+            parts = line.split(",")
+            if len(parts) < 6 or parts[4] in ("", "N/D"):
+                continue
+            out.append({
+                "date": parts[0],
+                "open": float(parts[1] or 0), "high": float(parts[2] or 0),
+                "low": float(parts[3] or 0), "close": float(parts[4] or 0),
+                "volume": float(parts[5] or 0),
+            })
+        return out
+    except Exception:
+        return []
+
+
 def _full_history(ticker: str) -> pd.DataFrame:
     if ticker in _MEM:
         return _MEM[ticker]

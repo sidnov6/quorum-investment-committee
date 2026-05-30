@@ -88,25 +88,47 @@ export default function Portfolio() {
               <Badge tone="brand">confidence {snap.last_decision.confidence}</Badge>
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {snap.last_decision.positions
-              .filter((p: any) => p.target_weight > 0)
-              .sort((a: any, b: any) => b.target_weight - a.target_weight)
-              .map((p: any) => (
-                <span key={p.ticker} className="chip bg-brand/10 text-brand">
-                  {p.ticker} {(p.target_weight * 100).toFixed(1)}%
-                </span>
-              ))}
-            <span className="chip bg-surface-subtle text-ink-soft">
-              CASH {((snap.last_decision.cash_weight || 0) * 100).toFixed(1)}%
-            </span>
-          </div>
-          <p className="mt-3 text-xs text-ink-faint">
-            These are the exact weights the committee voted; the holdings below are this allocation
-            applied to ${(snap.value || 0).toLocaleString()}. The standalone
-            <Link href="/memo" className="text-brand"> Decision Memo</Link> reflects the most recent
-            <i> convened</i> committee, which may use a different shortlist size.
-          </p>
+          {(() => {
+            // Prefer the ACTUALLY EXECUTED weights so this card always matches the
+            // holdings table (executed_weights is set when a name had to be dropped/
+            // redistributed). Fall back to the voted target weights for older runs.
+            const d = snap.last_decision;
+            const exec = d.executed_weights as Record<string, number> | undefined;
+            const rows = exec
+              ? Object.entries(exec).map(([ticker, w]) => ({ ticker, w: w as number }))
+              : d.positions.filter((p: any) => p.target_weight > 0)
+                  .map((p: any) => ({ ticker: p.ticker, w: p.target_weight }));
+            rows.sort((a, b) => b.w - a.w);
+            const invested = rows.reduce((s, r) => s + r.w, 0);
+            const cashW = Math.max(0, 1 - invested);
+            const dropped: string[] = d.unpriced_dropped || [];
+            return (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {rows.map((r) => (
+                    <span key={r.ticker} className="chip bg-brand/10 text-brand">
+                      {r.ticker} {(r.w * 100).toFixed(1)}%
+                    </span>
+                  ))}
+                  <span className="chip bg-surface-subtle text-ink-soft">
+                    CASH {(cashW * 100).toFixed(1)}%
+                  </span>
+                </div>
+                {dropped.length > 0 && (
+                  <p className="mt-2 text-xs text-warn">
+                    Note: {dropped.join(", ")} had no available price this run; its weight was
+                    redistributed across the priceable names.
+                  </p>
+                )}
+                <p className="mt-3 text-xs text-ink-faint">
+                  These are the weights actually executed for this portfolio; the holdings below are
+                  this allocation applied to ${(snap.value || 0).toLocaleString()}. The standalone
+                  <Link href="/memo" className="text-brand"> Decision Memo</Link> reflects the most
+                  recent <i>convened</i> committee, which may use a different shortlist size.
+                </p>
+              </>
+            );
+          })()}
         </div>
       )}
 

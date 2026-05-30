@@ -47,6 +47,11 @@ export default function Memo() {
     invested.forEach((p: any) => (init[p.ticker] = Math.round(p.target_weight * 1000) / 10));
     setEdited(init);
     setEditing(true);
+    // The editable fields live in the allocation card at the top — scroll there so
+    // clicking "Edit weights" has an obvious effect (otherwise it looks like a no-op).
+    setTimeout(() => {
+      document.getElementById("allocation-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
   const editedSum = Object.values(edited).reduce((a, b) => a + b, 0);
 
@@ -64,8 +69,10 @@ export default function Memo() {
         } />
 
       {/* Allocation */}
-      <div className="card mb-6 p-6">
-        <h3 className="mb-4 font-semibold text-ink">Recommended allocation</h3>
+      <div id="allocation-card" className="card mb-6 p-6 scroll-mt-24">
+        <h3 className="mb-4 font-semibold text-ink">
+          Recommended allocation {editing && <span className="text-brand">· editing</span>}
+        </h3>
         <div className="mb-4 flex h-3 w-full overflow-hidden rounded-full bg-surface-subtle">
           {invested.map((p: any, i: number) => (
             <div key={p.ticker} title={`${p.ticker} ${fmtPct(p.target_weight)}`}
@@ -120,7 +127,9 @@ export default function Memo() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card p-6">
           <h3 className="mb-2 font-semibold text-ink">PM rationale</h3>
-          <p className="text-sm leading-relaxed text-ink-soft">{d.rationale}</p>
+          <p className="text-sm leading-relaxed text-ink-soft">
+          {String(d.rationale || "").replace(/unknown \(no FRED key\)/gi, "neutral")}
+        </p>
         </div>
         <div className="card border-bear/20 p-6">
           <h3 className="mb-2 font-semibold text-bear">Strongest surviving counter-argument</h3>
