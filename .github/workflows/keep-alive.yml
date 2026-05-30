@@ -1,0 +1,36 @@
+name: Keep Render Awake
+
+# Render's free tier sleeps after ~15 min idle, causing a ~50s cold start for the
+# next visitor. We ping /api/health every 10 minutes so the service stays warm and
+# anyone visiting the site gets an instant response.
+#
+# NOTE: the interval is 10 min (not 20) ON PURPOSE — pinging every 20 min would let
+# the service sleep during the 15–20 min gap. GitHub cron can also run a few minutes
+# late, so 10 min keeps a safe margin under the 15-min sleep threshold.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:        # manual "Run workflow" button in the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          URL="${API_BASE:-https://quorum-api-a81d.onrender.com}/api/health"
+          echo "Pinging $URL"
+          # Retry a few times: the first hit may be waking a sleeping instance.
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /tmp/resp.txt -w "%{http_code}" --max-time 90 "$URL" || echo 000)
+            echo "attempt $i -> HTTP $code"
+            if [ "$code" = "200" ]; then
+              cat /tmp/resp.txt; echo
+              echo "Service is awake."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::Health check did not return 200 after retries (service may be waking)."
+        env:
+          API_BASE: ${{ secrets.API_BASE }}
